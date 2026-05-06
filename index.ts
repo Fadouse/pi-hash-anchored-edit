@@ -284,8 +284,7 @@ export default function hashAnchoredEdit(pi: ExtensionAPI) {
     renderCall(args, theme, context) {
       const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
       const path = typeof args?.path === "string" ? args.path : "...";
-      const hint = context.expanded ? "" : theme.fg("dim", " (Ctrl+O to expand)");
-      text.setText(`${theme.fg("toolTitle", theme.bold("read#"))} ${theme.fg("accent", path)}${formatLineRange(args, theme)}${hint}`);
+      text.setText(`${theme.fg("toolTitle", theme.bold("read#"))} ${theme.fg("accent", path)}${formatLineRange(args, theme)}`);
       return text;
     },
     renderResult(result, options, theme) {
