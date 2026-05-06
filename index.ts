@@ -213,6 +213,11 @@ function buildEditBox(component: any, args: any, theme: any, context: any) {
   const path = typeof args?.path === "string" ? args.path : "...";
   component.addChild(new Text(`${theme.fg("toolTitle", theme.bold("edit#"))} ${theme.fg("accent", path)}`, 0, 0));
   const diff = context.state.displayDiff as string | undefined;
+  const errorText = context.state.errorText as string | undefined;
+  if (errorText) {
+    component.addChild(new Spacer(1));
+    component.addChild(new Text(theme.fg("error", errorText), 0, 0));
+  }
   if (diff) {
     component.addChild(new Spacer(1));
     component.addChild(new Text(styleDiff(diff, theme), 0, 0));
@@ -268,10 +273,15 @@ export default function hashAnchoredEdit(pi: ExtensionAPI) {
       text.setText(`${theme.fg("toolTitle", theme.bold("read#"))} ${theme.fg("accent", path)}${hint}`);
       return text;
     },
-    renderResult(result, options) {
-      if (!options.expanded) return new Container();
+    renderResult(result, options, theme) {
       const raw = result.content?.filter((c: any) => c.type === "text").map((c: any) => c.text ?? "").join("\n") ?? "";
-      return new Text(stripAnchorMetadataForDisplay(raw), 0, 0);
+      const display = stripAnchorMetadataForDisplay(raw);
+      const lines = display.split("\n");
+      const maxLines = options.expanded ? lines.length : 10;
+      const shown = lines.slice(0, maxLines).join("\n");
+      const remaining = lines.length - maxLines;
+      const suffix = remaining > 0 ? theme.fg("muted", `\n... (${remaining} more lines, Ctrl+O to expand)`) : "";
+      return new Text(theme.fg("toolOutput", shown) + suffix, 0, 0);
     },
   });
 
@@ -344,6 +354,11 @@ export default function hashAnchoredEdit(pi: ExtensionAPI) {
       return buildEditBox(component, args, theme, context);
     },
     renderResult(result, _options, theme, context) {
+      if (context.isError) {
+        context.state.errorText = result.content?.filter((c: any) => c.type === "text").map((c: any) => c.text ?? "").join("\n") ?? "Edit failed.";
+      } else {
+        context.state.errorText = undefined;
+      }
       if (typeof result.details?.displayDiff === "string") context.state.displayDiff = result.details.displayDiff;
       const component = context.state.callComponent as any;
       if (component) buildEditBox(component, context.args, theme, context);

@@ -66,5 +66,5 @@ Shows whether the extension is loaded and which hash length is active.
 
 ## Notes
 
-The raw tool result still includes anchors for the model. In the Pi TUI, `read` stays collapsed until Ctrl+O expansion, while `edit` shows only the colored diff inside the edit block so successful edits turn green and failures turn red.
+The raw tool result still includes anchors for the model. In the Pi TUI, `read` shows a short preview with Ctrl+O expansion, while `edit` shows only the colored diff or error inside the edit block so successful edits turn green and failures turn red.
 This extension is deliberately small and deterministic. It does not call an LLM, does not format code, and does not auto-fix conflicts. On success, `edit` returns an `Updated anchors:` section for the lines it changed or inserted. Use those anchors for follow-up edits without re-reading the whole file. On conflict, read again and retry with fresh anchors.
