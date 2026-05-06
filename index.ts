@@ -129,6 +129,7 @@ function validateEditInput(input: EditInput): void {
   }
 }
 
+// Raw model-facing preview: keep hashes in the result so the model can safely chain edits.
 function makePreview(path: string, before: string[], after: string[], dryRun: boolean): string {
   const beforeCount = before.length;
   const afterCount = after.length;
@@ -149,6 +150,7 @@ function makePreview(path: string, before: string[], after: string[], dryRun: bo
   return lines.join("\n");
 }
 
+// Return fresh anchors only for touched lines, avoiding a mandatory full-file reread after success.
 function collectUpdatedAnchors(edits: HashEdit[], after: string[]): string {
   const touched = new Set<number>();
   for (const edit of edits) {
@@ -168,6 +170,7 @@ function collectUpdatedAnchors(edits: HashEdit[], after: string[]): string {
   const anchors = [...touched].sort((a, b) => a - b).map((line) => anchor(line, after[line - 1] ?? ""));
   return anchors.length > 0 ? `Updated anchors:\n${anchors.join("\n")}` : "Updated anchors: none (only deleted lines at EOF).";
 }
+// TUI-only cleanup: preserve raw anchors for the model, but hide them from the human preview.
 function stripAnchorMetadataForDisplay(text: string): string {
   return text
     .split("\n")
@@ -176,6 +179,7 @@ function stripAnchorMetadataForDisplay(text: string): string {
     .join("\n");
 }
 
+// Human-facing diff used by the custom edit TUI. Unlike makePreview(), this omits hashes and summaries.
 function makeDisplayDiff(before: string[], after: string[]): string {
   let first = 0;
   while (first < before.length && first < after.length && before[first] === after[first]) first++;
@@ -201,6 +205,7 @@ function formatLineRange(args: any, theme: any): string {
   return theme.fg("warning", `:${startLine}${endLine ? `-${endLine}` : ""}`);
 }
 
+// Match Pi's default compact tool rendering: 10-line preview, Ctrl+O expansion for the rest.
 function compactPreview(text: string, expanded: boolean, theme: any): string {
   const lines = text.split("\n");
   const maxLines = expanded ? lines.length : 10;
@@ -222,6 +227,7 @@ function editBoxBg(theme: any, context: any) {
   return context.isError ? (text: string) => theme.bg("toolErrorBg", text) : (text: string) => theme.bg("toolSuccessBg", text);
 }
 
+// Render edit as one colored block. Pi supplies context.isError, so success turns green and failures red.
 function buildEditBox(component: any, args: any, theme: any, context: any) {
   component.setBgFn(editBoxBg(theme, context));
   component.clear();

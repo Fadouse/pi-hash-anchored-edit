@@ -1,14 +1,35 @@
 # Hash-Anchored Edit for Pi
 
-Line-hash anchored replacement for Pi's built-in `read` and `edit` tools.
+Safer `read`/`edit` replacement tools for [Pi](https://pi.dev/) coding agent. Each line returned by `read` includes a short SHA-256 content hash, and every `edit` must present the matching line number + hash before the file is written.
 
-This extension intentionally registers tools named `read` and `edit`. Pi gives extension tools priority over built-ins with the same name, so normal model calls are routed through these safer implementations.
+![Hash edit preview](./assets/hash-edit-preview.png)
 
-## Why
+## Why this exists
 
-Plain line numbers go stale. Exact text edits can match the wrong duplicated block or fail after unrelated changes. Hash anchors bind each editable line to the exact content the model saw.
+Agentic coding often fails because context goes stale: line numbers drift, exact text snippets are duplicated, or another edit changes the file between `read` and `edit`. This package adds a lightweight optimistic-concurrency check to file edits:
 
-`read` returns every text line as:
+1. `read` returns `LINE#HASH | content` anchors.
+2. The model sends those anchors back to `edit`.
+3. `edit` re-reads the file and verifies every hash against current content.
+4. Any mismatch aborts the whole edit, forcing a fresh read instead of risking the wrong write.
+
+## Install
+
+```bash
+pi install npm:pi-hash-anchored-edit
+```
+
+Or install from GitHub:
+
+```bash
+pi install git:github.com/Fadouse/pi-hash-anchored-edit
+```
+
+The extension intentionally registers tools named `read` and `edit`. Pi gives extension tools priority over built-ins with the same name, so normal model calls automatically use these safer implementations.
+
+## Read output
+
+`read` returns every editable text line as:
 
 ```text
 000001#a1b2c3 | const value = 1;
@@ -18,7 +39,7 @@ Plain line numbers go stale. Exact text edits can match the wrong duplicated blo
 - `a1b2c3` is `sha256(lineContent).slice(0, 6)`.
 - The hash is computed without the newline character.
 
-`edit` requires the line number and hash for every mutation. Before writing, it re-reads the file and verifies every anchor against current content. If anything changed, the edit is rejected and the model must read again.
+The raw tool result keeps anchors for the model. The Pi TUI hides anchor noise in collapsed previews and supports Ctrl+O expansion, matching the default Pi read experience.
 
 ## Edit schema
 
@@ -37,26 +58,60 @@ Plain line numbers go stale. Exact text edits can match the wrong duplicated blo
 }
 ```
 
-### Modes
+Each edit is validated against the original file content before any write happens.
 
-- `patch` — replace `oldText` with `newText` inside the anchored line. `oldText` must occur exactly once and both strings must be single-line.
-- `replace` — replace the anchored line with `newText`.
+## Edit modes
+
+- `patch` — replace `oldText` with `newText` inside the anchored line. `oldText` must occur exactly once and both strings must be single-line. Best for small token-efficient changes.
+- `replace` — replace the anchored line with `newText`. `newText` may contain multiple lines.
 - `delete` — delete the anchored line.
 - `insert_before` — insert `newText` before the anchored line.
 - `insert_after` — insert `newText` after the anchored line.
 
-`newText` may contain multiple lines for replace/insert operations. `patch` is for small same-line replacements and keeps tool calls shorter than whole-line `replace`.
+Example small patch:
+
+```json
+{
+  "path": "example.txt",
+  "edits": [
+    { "line": 1, "hash": "dccb66", "mode": "patch", "oldText": "I", "newText": "he" }
+  ]
+}
+```
+
+Turns:
+
+```text
+test I like you
+```
+
+into:
+
+```text
+test he like you
+```
+
+without sending the whole replacement line.
+
+## TUI behavior
+
+- `read` shows a 10-line preview by default and Ctrl+O expands the full result.
+- `read` mirrors Pi's `:start-end` range display when `offset`/`limit` are used.
+- successful `edit` shows only a colored diff in a green edit block.
+- failed `edit` shows the error message inside a red edit block.
+- raw results still include updated anchors for the model, so follow-up edits can continue without re-reading the whole file.
 
 ## Safety rules
 
 - Every edit must include `line` and `hash`.
 - Hash mismatches abort the whole edit.
 - Multiple edits for the same line are rejected.
+- `patch.oldText` must occur exactly once on the anchored line.
 - Edits are validated against the original file, then applied bottom-up.
-- Existing line endings are preserved.
-- Binary/image files are not inlined; use shell tools or the original Pi read if needed.
+- Existing line endings and final newline style are preserved.
+- Binary/image files are not inlined.
 
-## Commands
+## Command
 
 ```text
 /hash-edit-status
@@ -64,7 +119,13 @@ Plain line numbers go stale. Exact text edits can match the wrong duplicated blo
 
 Shows whether the extension is loaded and which hash length is active.
 
-## Notes
+## Development
 
-The raw tool result still includes anchors for the model. In the Pi TUI, `read` and successful `edit` diffs show a 10-line preview with Ctrl+O expansion; `read` also mirrors Pi's `:start-end` range display for offset/limit. Failed edits show the error inside a red edit block.
-This extension is deliberately small and deterministic. It does not call an LLM, does not format code, and does not auto-fix conflicts. On success, `edit` returns an `Updated anchors:` section for the lines it changed or inserted. Use those anchors for follow-up edits without re-reading the whole file. On conflict, read again and retry with fresh anchors.
+```bash
+npm install
+npx tsx -e "import('./index.ts').then(() => console.log('ok'))"
+```
+
+## License
+
+MIT

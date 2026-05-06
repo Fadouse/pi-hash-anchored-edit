@@ -1,12 +1,13 @@
 {
   "name": "pi-hash-anchored-edit",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "Hash-anchored read/edit replacement tools for Pi coding agent.",
   "pi": {
     "extensions": [
       "./index.ts"
-    ]
+    ],
+    "image": "https://raw.githubusercontent.com/Fadouse/pi-hash-anchored-edit/main/assets/hash-edit-preview.png"
   },
   "dependencies": {
     "typebox": "^1.1.38"
