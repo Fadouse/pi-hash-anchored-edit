@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "typebox";
-import { Text } from "@mariozechner/pi-tui";
+import { Box, Container, Spacer, Text } from "@mariozechner/pi-tui";
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
 import { access, readFile, writeFile } from "node:fs/promises";
@@ -176,10 +176,48 @@ function stripAnchorMetadataForDisplay(text: string): string {
     .join("\n");
 }
 
-function compactEditDisplay(text: string): string {
-  const firstLine = text.split("\n", 1)[0] ?? "Edit complete.";
-  const dryRun = text.includes("No file written.") ? "No file written." : undefined;
-  return [firstLine, dryRun].filter(Boolean).join("\n");
+function makeDisplayDiff(before: string[], after: string[]): string {
+  let first = 0;
+  while (first < before.length && first < after.length && before[first] === after[first]) first++;
+  let lastBefore = before.length - 1;
+  let lastAfter = after.length - 1;
+  while (lastBefore >= first && lastAfter >= first && before[lastBefore] === after[lastAfter]) {
+    lastBefore--;
+    lastAfter--;
+  }
+  const from = Math.max(0, first - 3);
+  const toBefore = Math.min(before.length - 1, lastBefore + 3);
+  const toAfter = Math.min(after.length - 1, lastAfter + 3);
+  const lines: string[] = [];
+  for (let i = from; i <= toBefore; i++) lines.push(`- ${before[i] ?? ""}`);
+  for (let i = from; i <= toAfter; i++) lines.push(`+ ${after[i] ?? ""}`);
+  return lines.join("\n");
+}
+
+function styleDiff(diff: string, theme: any): string {
+  return diff.split("\n").map((line) => {
+    if (line.startsWith("+")) return theme.fg("toolDiffAdded", line);
+    if (line.startsWith("-")) return theme.fg("toolDiffRemoved", line);
+    return theme.fg("toolDiffContext", line);
+  }).join("\n");
+}
+
+function editBoxBg(theme: any, context: any) {
+  if (!context.executionStarted) return (text: string) => theme.bg("toolPendingBg", text);
+  return context.isError ? (text: string) => theme.bg("toolErrorBg", text) : (text: string) => theme.bg("toolSuccessBg", text);
+}
+
+function buildEditBox(component: any, args: any, theme: any, context: any) {
+  component.setBgFn(editBoxBg(theme, context));
+  component.clear();
+  const path = typeof args?.path === "string" ? args.path : "...";
+  component.addChild(new Text(`${theme.fg("toolTitle", theme.bold("edit#"))} ${theme.fg("accent", path)}`, 0, 0));
+  const diff = context.state.displayDiff as string | undefined;
+  if (diff) {
+    component.addChild(new Spacer(1));
+    component.addChild(new Text(styleDiff(diff, theme), 0, 0));
+  }
+  return component;
 }
 
 export default function hashAnchoredEdit(pi: ExtensionAPI) {
@@ -223,7 +261,15 @@ export default function hashAnchoredEdit(pi: ExtensionAPI) {
       if (end < lines.length) output += `\n\n[Showing lines ${start + 1}-${end} of ${lines.length}. Use offset=${end + 1} to continue.]`;
       return { content: [{ type: "text", text: output }], details: { path, lineCount: lines.length, hashLength: HASH_LEN, anchored: true } };
     },
-    renderResult(result) {
+    renderCall(args, theme, context) {
+      const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
+      const path = typeof args?.path === "string" ? args.path : "...";
+      const hint = context.expanded ? "" : theme.fg("dim", " (Ctrl+O to expand)");
+      text.setText(`${theme.fg("toolTitle", theme.bold("read#"))} ${theme.fg("accent", path)}${hint}`);
+      return text;
+    },
+    renderResult(result, options) {
+      if (!options.expanded) return new Container();
       const raw = result.content?.filter((c: any) => c.type === "text").map((c: any) => c.text ?? "").join("\n") ?? "";
       return new Text(stripAnchorMetadataForDisplay(raw), 0, 0);
     },
@@ -243,6 +289,7 @@ export default function hashAnchoredEdit(pi: ExtensionAPI) {
     ],
     parameters: editSchema,
     prepareArguments: prepareEditArguments as any,
+    renderShell: "self",
     async execute(_toolCallId, input: EditInput, signal, _onUpdate, ctx) {
       if (signal?.aborted) throw new Error("Operation aborted");
       validateEditInput(input);
@@ -284,15 +331,23 @@ export default function hashAnchoredEdit(pi: ExtensionAPI) {
 
       const preview = makePreview(input.path, lines, next, input.dryRun === true);
       const updatedAnchors = collectUpdatedAnchors(input.edits, next);
+      const displayDiff = makeDisplayDiff(lines, next);
       if (!input.dryRun) await writeFile(absolute, joinLines(next, eol, finalNewline), "utf8");
       return {
         content: [{ type: "text", text: `${preview}\n\n${updatedAnchors}${input.dryRun ? "\n\nNo file written." : ""}` }],
-        details: { path: input.path, edits: input.edits.length, dryRun: input.dryRun === true, hashLength: HASH_LEN, updatedAnchors },
+        details: { path: input.path, edits: input.edits.length, dryRun: input.dryRun === true, hashLength: HASH_LEN, updatedAnchors, displayDiff },
       };
     },
-    renderResult(result) {
-      const raw = result.content?.filter((c: any) => c.type === "text").map((c: any) => c.text ?? "").join("\n") ?? "";
-      return new Text(compactEditDisplay(raw), 0, 0);
+    renderCall(args, theme, context) {
+      const component = (context.lastComponent as any) ?? new Box(1, 1, (text: string) => text);
+      context.state.callComponent = component;
+      return buildEditBox(component, args, theme, context);
+    },
+    renderResult(result, _options, theme, context) {
+      if (typeof result.details?.displayDiff === "string") context.state.displayDiff = result.details.displayDiff;
+      const component = context.state.callComponent as any;
+      if (component) buildEditBox(component, context.args, theme, context);
+      return new Container();
     },
   });
 
