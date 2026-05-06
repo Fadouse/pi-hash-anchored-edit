@@ -12,7 +12,8 @@
     "typebox": "^1.1.38"
   },
   "peerDependencies": {
-    "@mariozechner/pi-coding-agent": "*"
+    "@mariozechner/pi-coding-agent": "*",
+    "@mariozechner/pi-tui": "*"
   },
   "keywords": [
     "pi-package",

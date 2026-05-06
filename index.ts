@@ -1,5 +1,6 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "typebox";
+import { Text } from "@mariozechner/pi-tui";
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
 import { access, readFile, writeFile } from "node:fs/promises";
@@ -158,6 +159,20 @@ function collectUpdatedAnchors(edits: HashEdit[], after: string[]): string {
   const anchors = [...touched].sort((a, b) => a - b).map((line) => anchor(line, after[line - 1] ?? ""));
   return anchors.length > 0 ? `Updated anchors:\n${anchors.join("\n")}` : "Updated anchors: none (only deleted lines at EOF).";
 }
+function stripAnchorMetadataForDisplay(text: string): string {
+  return text
+    .split("\n")
+    .filter((line) => !line.startsWith("[Hash anchors:"))
+    .map((line) => line.replace(/^([+-] )?\d{6}#[0-9a-f]{4,64} \| /, "$1"))
+    .join("\n");
+}
+
+function compactEditDisplay(text: string): string {
+  const firstLine = text.split("\n", 1)[0] ?? "Edit complete.";
+  const applied = text.match(/Applied \d+ hash-anchored edit\(s\)\./)?.[0];
+  const dryRun = text.includes("No file written.") ? "No file written." : undefined;
+  return [firstLine, applied ?? dryRun].filter(Boolean).join("\n");
+}
 
 export default function hashAnchoredEdit(pi: ExtensionAPI) {
   pi.registerTool({
@@ -198,8 +213,11 @@ export default function hashAnchoredEdit(pi: ExtensionAPI) {
       const end = start + selected.length;
       let output = selected.join("\n");
       if (end < lines.length) output += `\n\n[Showing lines ${start + 1}-${end} of ${lines.length}. Use offset=${end + 1} to continue.]`;
-      output += `\n\n[Hash anchors: edit with line + hash. Hash length: ${HASH_LEN}.]`;
-      return { content: [{ type: "text", text: output }], details: { path, lineCount: lines.length, hashLength: HASH_LEN } };
+      return { content: [{ type: "text", text: output }], details: { path, lineCount: lines.length, hashLength: HASH_LEN, anchored: true } };
+    },
+    renderResult(result) {
+      const raw = result.content?.filter((c: any) => c.type === "text").map((c: any) => c.text ?? "").join("\n") ?? "";
+      return new Text(stripAnchorMetadataForDisplay(raw), 0, 0);
     },
   });
 
@@ -254,8 +272,12 @@ export default function hashAnchoredEdit(pi: ExtensionAPI) {
       if (!input.dryRun) await writeFile(absolute, joinLines(next, eol, finalNewline), "utf8");
       return {
         content: [{ type: "text", text: `${preview}\n\n${updatedAnchors}\n\n${input.dryRun ? "No file written." : `Applied ${input.edits.length} hash-anchored edit(s).`}` }],
-        details: { path: input.path, edits: input.edits.length, dryRun: input.dryRun === true, hashLength: HASH_LEN },
+        details: { path: input.path, edits: input.edits.length, dryRun: input.dryRun === true, hashLength: HASH_LEN, updatedAnchors },
       };
+    },
+    renderResult(result) {
+      const raw = result.content?.filter((c: any) => c.type === "text").map((c: any) => c.text ?? "").join("\n") ?? "";
+      return new Text(compactEditDisplay(raw), 0, 0);
     },
   });
 
