@@ -64,4 +64,4 @@ Shows whether the extension is loaded and which hash length is active.
 
 ## Notes
 
-This extension is deliberately small and deterministic. It does not call an LLM, does not format code, and does not auto-fix conflicts. On conflict, read again and retry with fresh anchors.
+This extension is deliberately small and deterministic. It does not call an LLM, does not format code, and does not auto-fix conflicts. On success, `edit` returns an `Updated anchors:` section for the lines it changed or inserted. Use those anchors for follow-up edits without re-reading the whole file. On conflict, read again and retry with fresh anchors.

@@ -139,6 +139,26 @@ function makePreview(path: string, before: string[], after: string[], dryRun: bo
   return lines.join("\n");
 }
 
+function collectUpdatedAnchors(edits: HashEdit[], after: string[]): string {
+  const touched = new Set<number>();
+  for (const edit of edits) {
+    const mode = edit.mode ?? "replace";
+    const insertedCount = normalizeNewText(edit.newText).length;
+    if (mode === "delete") {
+      // The deleted line has no new anchor. Return the line that shifted into its place.
+      if (edit.line <= after.length) touched.add(edit.line);
+      continue;
+    }
+    const firstLine = mode === "insert_after" ? edit.line + 1 : edit.line;
+    const count = Math.max(1, insertedCount);
+    for (let line = firstLine; line < firstLine + count && line <= after.length; line++) {
+      touched.add(line);
+    }
+  }
+  const anchors = [...touched].sort((a, b) => a - b).map((line) => anchor(line, after[line - 1] ?? ""));
+  return anchors.length > 0 ? `Updated anchors:\n${anchors.join("\n")}` : "Updated anchors: none (only deleted lines at EOF).";
+}
+
 export default function hashAnchoredEdit(pi: ExtensionAPI) {
   pi.registerTool({
     name: "read",
@@ -230,9 +250,10 @@ export default function hashAnchoredEdit(pi: ExtensionAPI) {
       }
 
       const preview = makePreview(input.path, lines, next, input.dryRun === true);
+      const updatedAnchors = collectUpdatedAnchors(input.edits, next);
       if (!input.dryRun) await writeFile(absolute, joinLines(next, eol, finalNewline), "utf8");
       return {
-        content: [{ type: "text", text: `${preview}\n\n${input.dryRun ? "No file written." : `Applied ${input.edits.length} hash-anchored edit(s).`}` }],
+        content: [{ type: "text", text: `${preview}\n\n${updatedAnchors}\n\n${input.dryRun ? "No file written." : `Applied ${input.edits.length} hash-anchored edit(s).`}` }],
         details: { path: input.path, edits: input.edits.length, dryRun: input.dryRun === true, hashLength: HASH_LEN },
       };
     },
