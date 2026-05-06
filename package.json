@@ -1,0 +1,34 @@
+{
+  "name": "pi-hash-anchored-edit",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Hash-anchored read/edit replacement tools for Pi coding agent.",
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "dependencies": {
+    "typebox": "^1.1.38"
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "*"
+  },
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-coding-agent",
+    "extension",
+    "hash-edit",
+    "anchored-edit"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Fadouse/pi-hash-anchored-edit.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Fadouse/pi-hash-anchored-edit/issues"
+  },
+  "homepage": "https://github.com/Fadouse/pi-hash-anchored-edit#readme"
+}
