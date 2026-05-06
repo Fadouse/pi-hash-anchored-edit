@@ -29,8 +29,9 @@ Plain line numbers go stale. Exact text edits can match the wrong duplicated blo
     {
       "line": 12,
       "hash": "a1b2c3",
-      "mode": "replace",
-      "newText": "const value = 2;"
+      "mode": "patch",
+      "oldText": "1",
+      "newText": "2"
     }
   ]
 }
@@ -38,12 +39,13 @@ Plain line numbers go stale. Exact text edits can match the wrong duplicated blo
 
 ### Modes
 
+- `patch` — replace `oldText` with `newText` inside the anchored line. `oldText` must occur exactly once and both strings must be single-line.
 - `replace` — replace the anchored line with `newText`.
 - `delete` — delete the anchored line.
 - `insert_before` — insert `newText` before the anchored line.
 - `insert_after` — insert `newText` after the anchored line.
 
-`newText` may contain multiple lines for replace/insert operations.
+`newText` may contain multiple lines for replace/insert operations. `patch` is for small same-line replacements and keeps tool calls shorter than whole-line `replace`.
 
 ## Safety rules
 
@@ -64,5 +66,5 @@ Shows whether the extension is loaded and which hash length is active.
 
 ## Notes
 
-The raw tool result still includes anchors for the model. The Pi TUI renderer hides the extra hash guidance line and shows compact edit summaries to keep the UI readable.
+The raw tool result still includes anchors for the model. The Pi TUI renderer hides anchor noise, shows compact edit summaries such as `Updated path: before -> after lines`, and lets Pi color successful edits green and failed edits red.
 This extension is deliberately small and deterministic. It does not call an LLM, does not format code, and does not auto-fix conflicts. On success, `edit` returns an `Updated anchors:` section for the lines it changed or inserted. Use those anchors for follow-up edits without re-reading the whole file. On conflict, read again and retry with fresh anchors.

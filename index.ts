@@ -80,8 +80,10 @@ const editItemSchema = Type.Object({
     Type.Literal("delete"),
     Type.Literal("insert_before"),
     Type.Literal("insert_after"),
+    Type.Literal("patch"),
   ], { description: "Edit operation. Defaults to replace." })),
-  newText: Type.Optional(Type.String({ description: "Replacement or inserted text. May contain multiple lines. Omit for delete." })),
+  oldText: Type.Optional(Type.String({ description: "Text to replace within the anchored line when mode=patch. Must match exactly once." })),
+  newText: Type.Optional(Type.String({ description: "Replacement or inserted text. For mode=patch, this is the replacement substring. May contain multiple lines except in patch mode. Omit for delete." })),
 }, { additionalProperties: false });
 
 const editSchema = Type.Object({
@@ -90,8 +92,8 @@ const editSchema = Type.Object({
   dryRun: Type.Optional(Type.Boolean({ description: "Validate and preview without writing." })),
 }, { additionalProperties: false });
 
-type EditMode = "replace" | "delete" | "insert_before" | "insert_after";
-type HashEdit = { line: number; hash: string; mode?: EditMode; newText?: string };
+type EditMode = "replace" | "delete" | "insert_before" | "insert_after" | "patch";
+type HashEdit = { line: number; hash: string; mode?: EditMode; oldText?: string; newText?: string };
 type EditInput = { path: string; edits: HashEdit[]; dryRun?: boolean };
 
 function prepareEditArguments(input: unknown): unknown {
@@ -116,6 +118,13 @@ function validateEditInput(input: EditInput): void {
     const mode = edit.mode ?? "replace";
     if ((mode === "replace" || mode === "insert_before" || mode === "insert_after") && edit.newText === undefined) {
       throw new Error(`${mode} on line ${edit.line} requires newText.`);
+    }
+    if (mode === "patch") {
+      if (edit.oldText === undefined) throw new Error(`patch on line ${edit.line} requires oldText.`);
+      if (edit.newText === undefined) throw new Error(`patch on line ${edit.line} requires newText.`);
+      if (edit.oldText.includes("\n") || edit.oldText.includes("\r") || edit.newText.includes("\n") || edit.newText.includes("\r")) {
+        throw new Error(`patch on line ${edit.line} only supports single-line oldText/newText.`);
+      }
     }
   }
 }
@@ -144,7 +153,7 @@ function collectUpdatedAnchors(edits: HashEdit[], after: string[]): string {
   const touched = new Set<number>();
   for (const edit of edits) {
     const mode = edit.mode ?? "replace";
-    const insertedCount = normalizeNewText(edit.newText).length;
+    const insertedCount = mode === "patch" ? 1 : normalizeNewText(edit.newText).length;
     if (mode === "delete") {
       // The deleted line has no new anchor. Return the line that shifted into its place.
       if (edit.line <= after.length) touched.add(edit.line);
@@ -169,9 +178,8 @@ function stripAnchorMetadataForDisplay(text: string): string {
 
 function compactEditDisplay(text: string): string {
   const firstLine = text.split("\n", 1)[0] ?? "Edit complete.";
-  const applied = text.match(/Applied \d+ hash-anchored edit\(s\)\./)?.[0];
   const dryRun = text.includes("No file written.") ? "No file written." : undefined;
-  return [firstLine, applied ?? dryRun].filter(Boolean).join("\n");
+  return [firstLine, dryRun].filter(Boolean).join("\n");
 }
 
 export default function hashAnchoredEdit(pi: ExtensionAPI) {
@@ -229,7 +237,8 @@ export default function hashAnchoredEdit(pi: ExtensionAPI) {
     promptGuidelines: [
       "Use edit only with anchors obtained from the latest read output.",
       "Each edit must include line and hash. Do not guess hashes.",
-      "Use mode=replace/delete/insert_before/insert_after. newText may contain multiple lines.",
+      "Use mode=patch with oldText/newText for small in-line replacements; oldText must occur exactly once on the anchored line.",
+      "Use mode=replace/delete/insert_before/insert_after for whole-line or multi-line edits.",
       "On hash mismatch, read again instead of forcing the edit.",
     ],
     parameters: editSchema,
@@ -252,6 +261,11 @@ export default function hashAnchoredEdit(pi: ExtensionAPI) {
         if (actual.toLowerCase() !== edit.hash.toLowerCase()) {
           throw new Error(`Hash mismatch at line ${edit.line}: expected ${edit.hash}, current ${actual}. Re-read the file and retry with fresh anchors.`);
         }
+        if ((edit.mode ?? "replace") === "patch") {
+          const oldText = edit.oldText ?? "";
+          const occurrences = oldText === "" ? 0 : current.split(oldText).length - 1;
+          if (occurrences !== 1) throw new Error(`Patch mismatch at line ${edit.line}: oldText must occur exactly once, found ${occurrences}.`);
+        }
       }
 
       const next = [...lines];
@@ -260,7 +274,8 @@ export default function hashAnchoredEdit(pi: ExtensionAPI) {
         const index = edit.line - 1;
         const mode = edit.mode ?? "replace";
         const newLines = normalizeNewText(edit.newText);
-        if (mode === "replace") next.splice(index, 1, ...newLines);
+        if (mode === "patch") next[index] = next[index].replace(edit.oldText ?? "", edit.newText ?? "");
+        else if (mode === "replace") next.splice(index, 1, ...newLines);
         else if (mode === "delete") next.splice(index, 1);
         else if (mode === "insert_before") next.splice(index, 0, ...newLines);
         else if (mode === "insert_after") next.splice(index + 1, 0, ...newLines);
@@ -271,7 +286,7 @@ export default function hashAnchoredEdit(pi: ExtensionAPI) {
       const updatedAnchors = collectUpdatedAnchors(input.edits, next);
       if (!input.dryRun) await writeFile(absolute, joinLines(next, eol, finalNewline), "utf8");
       return {
-        content: [{ type: "text", text: `${preview}\n\n${updatedAnchors}\n\n${input.dryRun ? "No file written." : `Applied ${input.edits.length} hash-anchored edit(s).`}` }],
+        content: [{ type: "text", text: `${preview}\n\n${updatedAnchors}${input.dryRun ? "\n\nNo file written." : ""}` }],
         details: { path: input.path, edits: input.edits.length, dryRun: input.dryRun === true, hashLength: HASH_LEN, updatedAnchors },
       };
     },
