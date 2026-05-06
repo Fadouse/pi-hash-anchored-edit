@@ -194,6 +194,21 @@ function makeDisplayDiff(before: string[], after: string[]): string {
   return lines.join("\n");
 }
 
+function formatLineRange(args: any, theme: any): string {
+  if (args?.offset === undefined && args?.limit === undefined) return "";
+  const startLine = args.offset ?? 1;
+  const endLine = args.limit !== undefined ? startLine + args.limit - 1 : "";
+  return theme.fg("warning", `:${startLine}${endLine ? `-${endLine}` : ""}`);
+}
+
+function compactPreview(text: string, expanded: boolean, theme: any): string {
+  const lines = text.split("\n");
+  const maxLines = expanded ? lines.length : 10;
+  const shown = lines.slice(0, maxLines).join("\n");
+  const remaining = lines.length - maxLines;
+  const suffix = remaining > 0 ? theme.fg("muted", `\n... (${remaining} more lines, Ctrl+O to expand)`) : "";
+  return shown + suffix;
+}
 function styleDiff(diff: string, theme: any): string {
   return diff.split("\n").map((line) => {
     if (line.startsWith("+")) return theme.fg("toolDiffAdded", line);
@@ -220,7 +235,7 @@ function buildEditBox(component: any, args: any, theme: any, context: any) {
   }
   if (diff) {
     component.addChild(new Spacer(1));
-    component.addChild(new Text(styleDiff(diff, theme), 0, 0));
+    component.addChild(new Text(styleDiff(compactPreview(diff, context.expanded, theme), theme), 0, 0));
   }
   return component;
 }
@@ -270,18 +285,13 @@ export default function hashAnchoredEdit(pi: ExtensionAPI) {
       const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
       const path = typeof args?.path === "string" ? args.path : "...";
       const hint = context.expanded ? "" : theme.fg("dim", " (Ctrl+O to expand)");
-      text.setText(`${theme.fg("toolTitle", theme.bold("read#"))} ${theme.fg("accent", path)}${hint}`);
+      text.setText(`${theme.fg("toolTitle", theme.bold("read#"))} ${theme.fg("accent", path)}${formatLineRange(args, theme)}${hint}`);
       return text;
     },
     renderResult(result, options, theme) {
       const raw = result.content?.filter((c: any) => c.type === "text").map((c: any) => c.text ?? "").join("\n") ?? "";
-      const display = stripAnchorMetadataForDisplay(raw);
-      const lines = display.split("\n");
-      const maxLines = options.expanded ? lines.length : 10;
-      const shown = lines.slice(0, maxLines).join("\n");
-      const remaining = lines.length - maxLines;
-      const suffix = remaining > 0 ? theme.fg("muted", `\n... (${remaining} more lines, Ctrl+O to expand)`) : "";
-      return new Text(theme.fg("toolOutput", shown) + suffix, 0, 0);
+      const display = compactPreview(stripAnchorMetadataForDisplay(raw), options.expanded, theme);
+      return new Text(theme.fg("toolOutput", display), 0, 0);
     },
   });
 
