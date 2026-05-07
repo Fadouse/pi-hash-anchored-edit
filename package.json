@@ -1,8 +1,11 @@
 {
   "name": "pi-hash-anchored-edit",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "description": "Hash-anchored read/edit replacement tools for Pi coding agent.",
+  "scripts": {
+    "test": "node --import @mariozechner/jiti/register --test tests/*.test.ts"
+  },
   "pi": {
     "extensions": [
       "./index.ts"
@@ -11,6 +14,9 @@
   },
   "dependencies": {
     "typebox": "^1.1.38"
+  },
+  "devDependencies": {
+    "@mariozechner/jiti": "^2.6.5"
   },
   "peerDependencies": {
     "@mariozechner/pi-coding-agent": "*",
