@@ -99,7 +99,7 @@ without sending the whole replacement line.
 - `read` mirrors Pi's `:start-end` range display when `offset`/`limit` are used.
 - successful `edit` shows only a colored diff in a green edit block.
 - failed `edit` shows the error message inside a red edit block.
-- raw successful `edit` results include only a compact status plus updated anchors for touched lines, so follow-up edits can continue without re-reading the whole file.
+- raw successful `edit` results include only a small changed-anchor block, or ask the model to `read` again if that block would be too large.
 
 ## Safety rules
 

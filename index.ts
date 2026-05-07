@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "typebox";
-import { Box, Container, Spacer, Text } from "@mariozechner/pi-tui";
+import { Box, Container, getKeybindings, Spacer, Text } from "@mariozechner/pi-tui";
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
 import { access, readFile, writeFile } from "node:fs/promises";
@@ -9,6 +9,7 @@ import { isAbsolute, resolve } from "node:path";
 const HASH_LEN = 4;
 const DEFAULT_MAX_LINES = 400;
 const DEFAULT_MAX_BYTES = 32 * 1024;
+const CHANGED_ANCHOR_TEXT_BUDGET_BYTES = 2048;
 
 /** Resolve a model-provided path against Pi's current working directory. */
 function resolvePath(path: string, cwd: string): string {
@@ -68,6 +69,23 @@ function isLikelyBinary(buffer: Buffer): boolean {
 function normalizeNewText(text: string | undefined): string[] {
   if (text === undefined) return [];
   return splitLines(text);
+}
+
+function replaceTabs(text: string): string {
+  return text.replace(/\t/g, "   ");
+}
+
+function trimTrailingEmptyLines(lines: string[]): string[] {
+  let end = lines.length;
+  while (end > 0 && lines[end - 1] === "") end--;
+  return lines.slice(0, end);
+}
+
+function keyHint(theme: any, keybinding: string, description: string): string {
+  const keys = getKeybindings().getKeys(keybinding);
+  const keyText = Array.isArray(keys) ? keys.join("/") : String(keys ?? "");
+  const displayKey = keyText || "ctrl+o";
+  return theme.fg("dim", displayKey) + theme.fg("muted", ` ${description}`);
 }
 
 const readSchema = Type.Object({
@@ -146,6 +164,7 @@ type ResolvedEdit = PosEdit & {
   line: number;
   hash: string;
 };
+type AnchorRange = { start: number; end: number };
 
 function prepareEditArguments(input: unknown): unknown {
   if (!input || typeof input !== "object") return input;
@@ -258,16 +277,24 @@ function diffWindow(before: string[], after: string[]) {
   return { from, toBefore, toAfter };
 }
 
-// Return fresh anchors only for touched lines, avoiding a mandatory full-file reread after success.
-function collectUpdatedAnchors(edits: ResolvedEdit[], after: string[]): string {
-  const touched = new Set<number>();
+function changedAnchorRange(
+  edits: ResolvedEdit[],
+  after: string[],
+): AnchorRange | undefined {
+  let start = Number.POSITIVE_INFINITY;
+  let end = 0;
+  const include = (line: number) => {
+    if (line < 1 || line > after.length) return;
+    start = Math.min(start, line);
+    end = Math.max(end, line);
+  };
   for (const edit of edits) {
     const op = edit.op ?? "replace";
     const insertedCount =
       op === "patch" ? 1 : normalizeNewText(edit.new).length;
     if (op === "delete") {
       // The deleted line has no new anchor. Return the line that shifted into its place.
-      if (edit.line <= after.length) touched.add(edit.line);
+      include(edit.line);
       continue;
     }
     const firstLine = op === "after" ? edit.line + 1 : edit.line;
@@ -277,15 +304,33 @@ function collectUpdatedAnchors(edits: ResolvedEdit[], after: string[]): string {
       line < firstLine + count && line <= after.length;
       line++
     ) {
-      touched.add(line);
+      include(line);
     }
   }
-  const anchors = [...touched]
-    .sort((a, b) => a - b)
-    .map((line) => anchor(line, after[line - 1] ?? ""));
-  return anchors.length > 0
-    ? `Updated anchors:\n${anchors.join("\n")}`
-    : "Updated anchors: none (only deleted lines at EOF).";
+  return Number.isFinite(start) ? { start, end } : undefined;
+}
+
+function formatHashlineRegion(lines: string[], startLine: number): string {
+  return lines.map((line, i) => anchor(startLine + i, line)).join("\n");
+}
+
+function makeEditModelResult(
+  after: string[],
+  anchorRange: AnchorRange | undefined,
+  dryRun: boolean,
+): string {
+  const suffix = dryRun ? "\nNo file written." : "";
+  if (anchorRange) {
+    const region = after.slice(anchorRange.start - 1, anchorRange.end);
+    const formatted = formatHashlineRegion(region, anchorRange.start);
+    const block = `--- Anchors ${anchorRange.start}-${anchorRange.end} ---\n${formatted}`;
+    return Buffer.byteLength(block, "utf8") <= CHANGED_ANCHOR_TEXT_BUDGET_BYTES
+      ? block + suffix
+      : `Anchors omitted; use read for subsequent edits.${suffix}`;
+  }
+  return after.length === 0
+    ? `File is empty.${suffix}`
+    : `Anchors omitted; use read for subsequent edits.${suffix}`;
 }
 // TUI-only cleanup: preserve raw anchors for the model, but hide them from the human preview.
 function stripAnchorMetadataForDisplay(text: string): string {
@@ -312,15 +357,16 @@ function formatLineRange(args: any, theme: any): string {
   return theme.fg("warning", `:${startLine}${endLine ? `-${endLine}` : ""}`);
 }
 
-// Match Pi's default compact tool rendering: 10-line preview, Ctrl+O expansion for the rest.
+// Match Pi's write rendering: 10-line preview, total count, and dynamic expand key hint.
 function compactPreview(text: string, expanded: boolean, theme: any): string {
-  const lines = text.split("\n");
+  const lines = trimTrailingEmptyLines(text.replace(/\r/g, "").split("\n"));
+  const totalLines = lines.length;
   const maxLines = expanded ? lines.length : 10;
-  const shown = lines.slice(0, maxLines).join("\n");
+  const shown = lines.slice(0, maxLines).map(replaceTabs).join("\n");
   const remaining = lines.length - maxLines;
   const suffix =
     remaining > 0
-      ? theme.fg("muted", `\n... (${remaining} more lines, Ctrl+O to expand)`)
+      ? `${theme.fg("muted", `\n... (${remaining} more lines, ${totalLines} total,`)} ${keyHint(theme, "app.tools.expand", "to expand")})`
       : "";
   return shown + suffix;
 }
@@ -511,16 +557,20 @@ export default function hashAnchoredEdit(pi: ExtensionAPI) {
         else throw new Error(`Unsupported edit op: ${op}`);
       }
 
-      const updatedAnchors = collectUpdatedAnchors(resolved, next);
+      const anchorRange = changedAnchorRange(resolved, next);
+      const modelResult = makeEditModelResult(
+        next,
+        anchorRange,
+        input.dryRun === true,
+      );
       const displayDiff = makeDisplayDiff(lines, next);
       if (!input.dryRun)
         await writeFile(absolute, joinLines(next, eol, finalNewline), "utf8");
-      const action = input.dryRun === true ? "Dry run" : "Updated";
       return {
         content: [
           {
             type: "text",
-            text: `${action} ${input.path}: ${lines.length} -> ${next.length} lines\n${updatedAnchors}${input.dryRun ? "\nNo file written." : ""}`,
+            text: modelResult,
           },
         ],
         details: {
@@ -528,7 +578,7 @@ export default function hashAnchoredEdit(pi: ExtensionAPI) {
           edits: input.edits.length,
           dryRun: input.dryRun === true,
           hashLength: HASH_LEN,
-          updatedAnchors,
+          anchorRange,
           displayDiff,
         },
       };

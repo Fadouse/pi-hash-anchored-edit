@@ -8,7 +8,7 @@ import hashAnchoredEdit from "../index.ts";
 
 let completedCases = 0;
 process.on("exit", () => {
-  assert.equal(completedCases, 3);
+  assert.equal(completedCases, 4);
 });
 
 type ToolResult = {
@@ -108,8 +108,8 @@ test("edit patches by pos and returns compact updated anchors", async () => {
 
     assert.equal(await readFile(path, "utf8"), "alpha\nBET\ngamma\n");
     const output = textContent(result);
-    assert.match(output, /^Updated .*sample\.txt: 3 -> 3 lines/m);
-    assert.match(output, /^Updated anchors:\n0002#[0-9a-f]{4}\|BET$/m);
+    assert.match(output, /^--- Anchors 2-2 ---\n0002#[0-9a-f]{4}\|BET$/m);
+    assert.doesNotMatch(output, /^Updated /m);
     assert.doesNotMatch(output, /Preview:/);
     assert.match(result.details.displayDiff, /^- beta$/m);
     assert.match(result.details.displayDiff, /^\+ BET$/m);
@@ -141,4 +141,28 @@ test("edit rejects stale pos hashes before writing", async () => {
     assert.equal(await readFile(path, "utf8"), original);
     completedCases++;
   });
+});
+
+test("read renderResult uses Pi write-style long output hint", async () => {
+  const tools = registerTools();
+  const result = {
+    content: [
+      {
+        type: "text",
+        text: Array.from({ length: 12 }, (_, i) => `line-${i + 1}`).join("\n"),
+      },
+    ],
+    details: {},
+  };
+  const theme = {
+    fg(_name: string, text: string) {
+      return text;
+    },
+  };
+
+  const component = tools.read.renderResult(result, { expanded: false }, theme);
+  const rendered = component.render(120).map((line: string) => line.trimEnd()).join("\n");
+
+  assert.match(rendered, /\.\.\. \(2 more lines, 12 total, ctrl\+o to expand\)/);
+  completedCases++;
 });
