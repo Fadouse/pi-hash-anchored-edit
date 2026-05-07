@@ -4,5 +4,6 @@ build/
 coverage/
 *.tsbuildinfo
 .DS_Store
+.fuse_hidden*
 .env
 .env.*

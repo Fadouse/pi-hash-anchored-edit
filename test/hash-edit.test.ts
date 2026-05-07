@@ -8,7 +8,7 @@ import hashAnchoredEdit from "../index.ts";
 
 let completedCases = 0;
 process.on("exit", () => {
-  assert.equal(completedCases, 4);
+  assert.equal(completedCases, 5);
 });
 
 type ToolResult = {
@@ -24,6 +24,7 @@ type Tool = {
     onUpdate?: unknown,
     context?: { cwd: string },
   ) => Promise<ToolResult>;
+  renderResult?: (...args: any[]) => any;
 };
 
 function registerTools(): Record<string, Tool> {
@@ -78,6 +79,29 @@ test("read emits compact 4-char hash anchors", async () => {
     assert.equal(result.details.hashLength, 4);
     assert.match(textContent(result), /^0001#[0-9a-f]{4}\|alpha$/m);
     assert.match(textContent(result), /^0002#[0-9a-f]{4}\|beta$/m);
+    completedCases++;
+  });
+});
+
+test("read accepts utf8 non-ascii text", async () => {
+  const tools = registerTools();
+  await withTempDir(async (dir) => {
+    const path = join(dir, "utf8.md");
+    await writeFile(path, "标题\n你好，世界\n", "utf8");
+
+    const result = await tools.read.execute(
+      "read-utf8",
+      { path, limit: 2 },
+      undefined,
+      undefined,
+      { cwd: dir },
+    );
+    const output = textContent(result);
+
+    assert.equal(result.details.binary, undefined);
+    assert.doesNotMatch(output, /Binary or non-text/);
+    assert.match(output, /^0001#[0-9a-f]{4}\|标题$/m);
+    assert.match(output, /^0002#[0-9a-f]{4}\|你好，世界$/m);
     completedCases++;
   });
 });
@@ -160,8 +184,15 @@ test("read renderResult uses Pi write-style long output hint", async () => {
     },
   };
 
-  const component = tools.read.renderResult(result, { expanded: false }, theme);
-  const rendered = component.render(120).map((line: string) => line.trimEnd()).join("\n");
+  const component = tools.read.renderResult!(
+    result,
+    { expanded: false },
+    theme,
+  );
+  const rendered = component
+    .render(120)
+    .map((line: string) => line.trimEnd())
+    .join("\n");
 
   assert.match(rendered, /\.\.\. \(2 more lines, 12 total, ctrl\+o to expand\)/);
   completedCases++;

@@ -126,6 +126,15 @@ npm install
 npm test
 ```
 
+Project layout:
+
+- `index.ts` registers the extension.
+- `src/read.ts` implements the anchored `read` tool.
+- `src/edit.ts` implements hash-validated edits.
+- `src/shared.ts` contains hashing, line handling, UTF-8 text detection, and TUI helpers.
+- `prompts/` stores tool prompt guidelines.
+- `test/` stores Node test cases.
+
 ## License
 
 MIT
